@@ -1,57 +1,80 @@
 import streamlit as st
-import tempfile
 import cv2
-from detector import detect_from_image, detect_from_video
+import tempfile
+import os
+from detector import detect_people, detect_from_image, detect_from_video, save_video
 
-st.set_page_config(
-    page_title="People Counter",
-    page_icon="👥",
-    layout="wide"
-)
+st.set_page_config(page_title="People Counter", page_icon="👥", layout="wide")
+st.title("👥 People Detection System")
 
-st.title("👥 Real-Time People Counter")
+# Sidebar
+st.sidebar.header("Settings")
+source = st.sidebar.radio("Source", ["Image", "Video", "Webcam"])
 
-
-st.sidebar.title("⚙️ Options")
-source = st.sidebar.radio(
-    "Select Input Source",
-    ["Webcam", "Video File", "Image"]
-)
-
+# ─── IMAGE ───────────────────────────────────────────
 if source == "Image":
-    uploaded = st.file_uploader(
-        "Upload Image",
-        type=["jpg","jpeg","png"]
-    )
+    uploaded = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
+
     if uploaded:
-        image_bytes = uploaded.read()
-        annotated, count = detect_from_image(image_bytes)
+        annotated, count = detect_from_image(uploaded.read())
         annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
-        col1, col2 = st.columns(2)
-        with col1:
-            st.image(image_bytes, caption="Original")
-        with col2:
-            st.image(annotated_rgb, caption=f"Detected: {count} people")
-        st.metric("Total People", count)
 
-elif source == "Video File":
-    uploaded = st.file_uploader(
-        "Upload Video",
-        type=["mp4","avi","mov"]
-    )
+        st.image(annotated_rgb, caption="Detected People", use_column_width=True)
+        st.metric("👥 People Count", count)
+
+# ─── VIDEO ───────────────────────────────────────────
+elif source == "Video":
+    uploaded = st.file_uploader("Upload Video", type=["mp4", "avi", "mov"])
+
     if uploaded:
-        tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-        tfile.write(uploaded.read())
-        st.info("Processing...")
-        frames, counts = detect_from_video(tfile.name)
-        stframe = st.empty()
-        count_display = st.empty()
-        for frame, count in zip(frames, counts):
-            annotated_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            stframe.image(annotated_rgb, use_column_width=True)
-            count_display.metric("People Count", count)
-        st.success("Done!")
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp:
+            tmp.write(uploaded.read())
+            tmp_path = tmp.name
 
+        with st.spinner("Processing... Please wait"):
+            frames, counts = detect_from_video(tmp_path)
+
+            # Detected video save করো
+            output_path = tmp_path.replace('.mp4', '_detected.mp4')
+            save_video(frames, output_path, fps=10)
+
+        if frames:
+            st.success(f"✅ {len(frames)} frames detected")
+
+            # Max count দেখাও
+            st.metric("👥 Max People Detected", max(counts))
+
+            # Smooth video playback
+            st.subheader("Detected Video")
+            st.video(output_path)
+
+            # Cleanup
+            os.remove(tmp_path)
+            os.remove(output_path)
+
+# ─── WEBCAM ──────────────────────────────────────────
 elif source == "Webcam":
-    st.warning("Webcam mode — run detector.py locally ")
-    st.code("python detector.py")
+    st.info("Webcam live feed — Click Start ")
+
+    col1, col2 = st.columns(2)
+    run = col1.button("▶ Start")
+    stop = col2.button("⏹ Stop")
+    frame_window = st.image([])
+    count_placeholder = st.empty()
+
+    if run:
+        cap = cv2.VideoCapture(0)
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret or stop:
+                break
+
+            annotated, count = detect_people(frame)
+            annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+            frame_window.image(annotated_rgb, use_column_width=True)
+
+            with count_placeholder.container():
+                st.metric("👥 People Count", count)
+
+        cap.release()

@@ -4,8 +4,9 @@ import numpy as np
 
 model = YOLO('yolov8n.pt')
 
+
 def detect_people(frame):
-    """যেকোনো frame-এ people detect করবে"""
+    """যেকোনো frame এ people detect করবে"""
     results = model(frame, classes=[0], verbose=False)
     annotated_frame = results[0].plot()
     people_count = len(results[0].boxes)
@@ -19,20 +20,48 @@ def detect_from_image(image_bytes):
     return detect_people(frame)
 
 
-def detect_from_video(video_path):
-    """Video file path থেকে frames detect করবে"""
+def detect_from_video(video_path, frame_skip=3):
+    """Video file থেকে frame by frame detect করবে"""
     cap = cv2.VideoCapture(video_path)
+
     frames = []
     counts = []
+    frame_idx = 0
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
+
+        frame_idx += 1
+        if frame_idx % frame_skip != 0:
+            continue
+
+        # resize frame to speed up detection
+        frame = cv2.resize(frame, (1280, 720))
+
         annotated, count = detect_people(frame)
         frames.append(annotated)
         counts.append(count)
+
     cap.release()
     return frames, counts
+
+
+def save_video(frames, output_path, fps=10):
+    """Save detected frames as a video file"""
+    if not frames:
+        return
+    h, w = frames[0].shape[:2]
+    writer = cv2.VideoWriter(
+        output_path,
+        cv2.VideoWriter_fourcc(*'avc1'),  # browser compatible
+        fps,
+        (w, h)
+    )
+    for f in frames:
+        writer.write(f)
+    writer.release()
 
 
 def run_webcam():
